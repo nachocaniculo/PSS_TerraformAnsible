@@ -1,0 +1,48 @@
+---
+- name: Install MySQL Server and required packages
+  ansible.builtin.apt:
+    name:
+      - mysql-server
+      - python3-mysqldb
+    state: present
+    update_cache: yes
+
+- name: Ensure MySQL service is started and enabled
+  ansible.builtin.service:
+    name: mysql
+    state: started
+    enabled: true
+
+- name: Wait for MySQL to start and become available
+  ansible.builtin.wait_for:
+    port: 3306
+    host: 127.0.0.1
+    timeout: 60
+    delay: 10
+    msg: "MySQL did not start or is not listening on port 3306"
+
+- name: Create WordPress database
+  community.mysql.mysql_db:
+    login_user: root
+    name: wordpress
+    state: present
+    encoding: utf8
+
+- name: Create WordPress user and set password
+  community.mysql.mysql_user:
+    login_user: root
+    name: wp_user
+    password: wp_pass
+    host: '%'
+    priv: 'wordpress.*:ALL'
+    state: present
+
+- name: Configure MySQL to listen on all interfaces
+  ansible.builtin.lineinfile:
+    path: /etc/mysql/mysql.conf.d/mysqld.cnf
+    regexp: '^bind-address'
+    line: 'bind-address = 0.0.0.0'
+    state: present
+    backup: yes
+  notify:
+    - Restart MySQL

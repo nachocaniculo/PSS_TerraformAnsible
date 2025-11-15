@@ -1,0 +1,86 @@
+---
+- name: Install Apache, PHP (with all essential modules) and tools
+  ansible.builtin.apt:
+    name:
+      # Base packages
+      - apache2
+      - unzip
+      - curl
+      - wget
+      - python3-apt
+      - mysql-client # Client for DB debugging
+      
+      # Essential PHP packages for WordPress
+      - php-cli
+      - libapache2-mod-php
+      - php-mysql
+      - php-gd
+      - php-mbstring
+      - php-xml
+      - php-zip
+    state: present
+    update_cache: yes
+
+- name: Enable Apache rewrite module
+  community.general.apache2_module:
+    state: present
+    name: rewrite
+  notify:
+    - Restart Apache
+
+- name: Create temporary directory for extraction
+  ansible.builtin.file:
+    path: /tmp/wordpress_unzip
+    state: directory
+
+- name: Download WordPress using wget
+  ansible.builtin.command: wget -O /tmp/wordpress.tar.gz https://wordpress.org/latest.tar.gz
+  args:
+    creates: /tmp/wordpress.tar.gz
+
+- name: Extract WordPress to temporary directory
+  ansible.builtin.unarchive:
+    src: /tmp/wordpress.tar.gz
+    dest: /tmp/wordpress_unzip/
+    remote_src: yes
+    creates: "/tmp/wordpress_unzip/wordpress"
+
+- name: Move content to /var/www/html/wordpress (avoiding double nesting)
+  ansible.builtin.copy:
+    src: /tmp/wordpress_unzip/wordpress/
+    dest: /var/www/html/wordpress/
+    remote_src: yes
+    owner: www-data
+    group: www-data
+    mode: preserve
+    directory_mode: '0775'
+
+- name: Remove temporary directories and tar.gz file
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/wordpress_unzip
+    - /tmp/wordpress.tar.gz
+
+- name: Copy wp-config.php configuration file
+  ansible.builtin.template:
+    src: wp-config.php.j2
+    dest: /var/www/html/wordpress/wp-config.php
+    owner: www-data
+    group: www-data
+    mode: '0640'
+
+- name: Start and enable Apache
+  ansible.builtin.service:
+    name: apache2
+    state: started
+    enabled: true
+
+- name: Check that Apache responds with HTTP 200
+  ansible.builtin.uri:
+    url: http://localhost/wordpress
+    status_code: 200
+    timeout: 60
+  register: result
+  ignore_errors: true
